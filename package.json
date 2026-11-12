@@ -1,0 +1,36 @@
+{
+  "name": "wishtune-crm-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Wishtune CRM (crm.wishtune.com)",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "migrate": "node scripts/runMigrations.js",
+    "create-admin": "node scripts/createAdmin.js",
+    "reset-password": "node scripts/resetPassword.js",
+    "secrets": "node scripts/generateSecrets.js",
+    "test:events": "node test/runEventChecklist.js",
+    "import:payhip": "node scripts/importPayhip.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.3",
+    "node-cron": "^4.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

@@ -1,0 +1,120 @@
+<!--
+  Wishtune CRM — email sign-up form for the landing pages.
+
+  Paste this block where the form should appear (love, beauty, everything
+  pages). Only two things change per page:
+    1. data-page="love"   → "beauty" / "everything" / whatever the page is
+    2. the wording/styling, if you like (class names are prefixed wt-)
+
+  What it sends to https://crm.wishtune.com/api/signup:
+    email, mobile (optional), first_page_seen, utm_source, utm_medium,
+    utm_campaign, consent (yes/no)
+  UTM tags are read from the page URL (the ad link) and remembered for the
+  visit, so they are still sent if the person browses to another page first.
+
+  This form posts to the CRM, NOT to Netlify — do not add data-netlify to it.
+-->
+<form class="wt-signup" data-page="love" novalidate>
+  <label class="wt-label" for="wt-email">Email</label>
+  <input class="wt-input" id="wt-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" />
+
+  <label class="wt-label" for="wt-mobile">WhatsApp / mobile <span class="wt-optional">(optional)</span></label>
+  <input class="wt-input" id="wt-mobile" name="mobile" type="tel" autocomplete="tel" inputmode="tel" placeholder="98765 43210" />
+
+  <!-- Spam trap: hidden from people, bots fill it in. Leave as is. -->
+  <input name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true"
+         style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden" />
+
+  <label class="wt-consent">
+    <input name="consent" type="checkbox" value="yes" />
+    Yes, email me about new mixtapes and offers. I can unsubscribe anytime.
+  </label>
+
+  <button class="wt-button" type="submit">Join</button>
+  <p class="wt-message" role="status" aria-live="polite"></p>
+</form>
+
+<style>
+  .wt-signup { display: grid; gap: 8px; max-width: 420px; }
+  .wt-label { font-size: 14px; }
+  .wt-optional { opacity: .6; }
+  .wt-input { padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; font: inherit; }
+  .wt-consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.4; }
+  .wt-button { padding: 11px 16px; border: 0; border-radius: 8px; cursor: pointer; font: inherit; }
+  .wt-button[disabled] { opacity: .6; cursor: wait; }
+  .wt-message { min-height: 1.2em; font-size: 14px; margin: 0; }
+  .wt-message.wt-error { color: #c0392b; }
+</style>
+
+<script>
+  (function () {
+    var CRM_URL = "https://crm.wishtune.com/api/signup";
+    var UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign"];
+
+    // Remember UTM tags from the ad link for this visit (first ones win).
+    function storedUtm() {
+      var saved = {};
+      try { saved = JSON.parse(sessionStorage.getItem("wt_utm") || "{}"); } catch (e) {}
+      var qs = new URLSearchParams(window.location.search);
+      var found = false;
+      UTM_KEYS.forEach(function (k) { if (qs.get(k)) found = true; });
+      if (found && !saved.utm_source && !saved.utm_campaign) {
+        UTM_KEYS.forEach(function (k) { saved[k] = qs.get(k) || ""; });
+        try { sessionStorage.setItem("wt_utm", JSON.stringify(saved)); } catch (e) {}
+      }
+      return saved;
+    }
+    var utm = storedUtm();
+
+    document.querySelectorAll("form.wt-signup").forEach(function (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var msg = form.querySelector(".wt-message");
+        var btn = form.querySelector(".wt-button");
+        var email = form.email.value.trim();
+        msg.className = "wt-message";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+          msg.textContent = "Please enter a valid email address.";
+          msg.className = "wt-message wt-error";
+          return;
+        }
+        btn.disabled = true;
+        msg.textContent = "Sending…";
+
+        var body = {
+          email: email,
+          mobile: form.mobile ? form.mobile.value.trim() : "",
+          first_page_seen: form.getAttribute("data-page") || window.location.pathname,
+          utm_source: utm.utm_source || "",
+          utm_medium: utm.utm_medium || "",
+          utm_campaign: utm.utm_campaign || "",
+          consent: form.consent.checked ? "yes" : "no",
+          website: form.website.value
+        };
+
+        fetch(CRM_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
+          .then(function (r) {
+            if (r.ok) {
+              form.reset();
+              msg.textContent = "Thank you! You're on the list.";
+              // Optional: tell the Meta Pixel (stays in the browser, nothing goes to the CRM).
+              if (window.fbq) window.fbq("track", "Lead");
+            } else {
+              msg.textContent = (r.d && r.d.error) || "Something went wrong. Please try again.";
+              msg.className = "wt-message wt-error";
+            }
+          })
+          .catch(function () {
+            msg.textContent = "Could not connect. Please try again.";
+            msg.className = "wt-message wt-error";
+          })
+          .finally(function () { btn.disabled = false; });
+      });
+    });
+  })();
+</script>
