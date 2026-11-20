@@ -1,0 +1,8 @@
+{
+  "_comment": "Sandbox only (SANDBOX_MODE=true). Copy to config/sandbox.allowlist.json and replace the placeholders with your testers' own email and mobile. Calls/WhatsApp (and any future email) go ONLY to these users. Events from these emails, and from testEmailDomains, are kept as-is; everyone else is anonymised on arrival. Changes are picked up automatically, no restart needed. The XXXXX placeholders are deliberately invalid, so a copied-but-unedited file contacts nobody.",
+  "users": [
+    { "name": "Tester 1", "email": "tester1@yourdomain.com", "mobile": "+91 XXXXX XXXXX" },
+    { "name": "Tester 2", "email": "tester2@yourdomain.com", "mobile": "+91 XXXXX XXXXX" }
+  ],
+  "testEmailDomains": ["example.com", "example.test"]
+}

@@ -1,6 +1,7 @@
 // services/eventLog.js — writes rows to the events table.
 
 const db = require("../config/mysql");
+const sandbox = require("../config/sandbox");
 
 const SECRET_KEYS = new Set(["signature", "password", "api_key", "apikey", "token"]);
 
@@ -29,6 +30,10 @@ function toJson(value) {
  * @param {import('mysql2/promise').PoolConnection} [conn] use inside a transaction
  */
 async function insertEvent(e, conn = db) {
+  // Sandbox: never store a raw payload or email that is not a test identity.
+  if (sandbox.isSandbox() && e.emailRaw && !String(e.emailRaw).includes("example.test") && !sandbox.isTestIdentity(e.emailRaw)) {
+    e = { ...e, emailRaw: sandbox.sanitizeEmailRaw(e.emailRaw), payload: e.payload ? { sandboxSanitized: true } : e.payload };
+  }
   const [result] = await conn.execute(
     `INSERT INTO events
        (contact_id, source, type, status, dedupe_key, matched_by, email_raw, summary,

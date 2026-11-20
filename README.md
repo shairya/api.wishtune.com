@@ -178,6 +178,7 @@ today); with data it stops and changes nothing. Then run the import (section 4).
 | Payhip | Settings → Developer → Webhook URL | `https://crm.wishtune.com/webhooks/payhip` |
 | Payhip | Settings → Developer → API key | copy into `PAYHIP_API_KEY` |
 | Sign-up form | landing pages | paste `website-snippets/signup-form.html`, set `data-page` |
+| Offer sign-up form (Netlify, `offer-signup`) | Netlify → Forms → Form notifications → Outgoing webhook, form `offer-signup` | URL `https://crm.wishtune.com/webhooks/signup`, JWS secret = `NETLIFY_JWS_SECRET`. Saved as **Subscriber** with consent (checkbox `consent`), page and UTM (hidden `utm_*` fields, else read from the page URL). `NETLIFY_SIGNUP_FORM_NAMES` lists the forms accepted. |
 | Contact form | Netlify → Forms → Form notifications → Outgoing webhook | URL `https://crm.wishtune.com/webhooks/contact`, JWS secret = `NETLIFY_JWS_SECRET` |
 | Contact form | wishtune.com/contact | add the optional `mobile` field — see `website-snippets/contact-form-changes.md` |
 | Ads (XLNC) | every ad link | `?utm_source=…&utm_medium=…&utm_campaign=…` |
@@ -235,7 +236,72 @@ everything up to that moment. Any overlap is skipped by Order ID.
 
 ---
 
-## 5. Bots (TeleAgent voice, Wylto WhatsApp) — ready, switched off
+## 5. Sandbox: devcrm.wishtune.com + devapi.wishtune.com
+
+A second copy of the CRM for testing, using **the same code** with
+`SANDBOX_MODE=true`. Its safety rules are enforced in code (`config/sandbox.js`):
+
+| Risk | What stops it |
+|---|---|
+| A real customer gets a call / WhatsApp | Bots only reach mobiles in **`config/sandbox.allowlist.json`**: checked when picking contacts **and** again in front of every provider. Missing, empty or broken file → nobody is contacted. Future email/SMS must use `sandbox.canEmail()` / `canContactMobile()`. |
+| Real customer data ends up in the sandbox | Any sale / sign-up / message / import whose email isn't an allowlisted tester or a test domain (`example.com`, `example.test`, … plus `testEmailDomains`) is **anonymised on arrival**: email → `sbx-<hash>@example.test`, name / mobile / message / raw payload dropped. Same real email → same anonymous contact, so repeat sales and refunds still line up. |
+| Sandbox pointed at the live database | The server refuses to start unless `MYSQL_DB` contains `dev`, `sandbox`, `test` or `staging`. |
+| Mixing up the two | Amber "SANDBOX" banner on every page and `[SANDBOX]` in the tab title; separate folders, database, ports (5200/3200), pm2 names and secrets. |
+
+**Allowlist** (`config/sandbox.allowlist.json`, not in git; copy from the example):
+```json
+{ "users": [ { "name": "Ria", "email": "ria@yourdomain.com", "mobile": "+91 98xxxxxxxx" } ],
+  "testEmailDomains": ["example.com"] }
+```
+Edits are picked up automatically. The list is shown on *Settings → Bots*.
+
+### Set it up (once)
+```bash
+# DNS: A records devcrm.wishtune.com and devapi.wishtune.com → the VPS IP
+
+# database + users (sandbox user, and a read-only production user for the copy)
+sudo mysql -e "CREATE DATABASE wishtune_crm_dev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  CREATE USER 'wishtune_dev'@'localhost' IDENTIFIED BY '<pw>';
+  GRANT ALL ON wishtune_crm_dev.* TO 'wishtune_dev'@'localhost';
+  CREATE USER 'wishtune_ro'@'localhost' IDENTIFIED BY '<pw2>';
+  GRANT SELECT ON wishtune_crm.* TO 'wishtune_ro'@'localhost'; FLUSH PRIVILEGES;"
+
+# backend
+cd /var/www/html && git clone <backend repo> wishtune-crm-backend-dev && cd wishtune-crm-backend-dev
+npm install --omit=dev
+cp .env.sandbox.example .env && npm run secrets     # paste NEW secrets + DB passwords into .env
+cp config/sandbox.allowlist.example.json config/sandbox.allowlist.json && nano config/sandbox.allowlist.json
+npm run migrate && npm run create-admin
+npm run sandbox:copy-from-prod -- --yes              # optional: anonymised copy of production
+
+# frontend
+cd /var/www/html && git clone <frontend repo> wishtune-crm-frontend-dev && cd wishtune-crm-frontend-dev
+cp .env.sandbox.example .env.production.local       # devapi URL + NEXT_PUBLIC_APP_ENV=sandbox
+npm install && npm run build
+
+# processes + nginx + certificate
+pm2 start /var/www/html/wishtune-crm-backend-dev/deploy/ecosystem.dev.config.js && pm2 save
+sudo certbot certonly --nginx -d devcrm.wishtune.com -d devapi.wishtune.com
+sudo cp /var/www/html/wishtune-crm-backend-dev/deploy/nginx-dev.wishtune.com.conf /etc/nginx/sites-available/dev.wishtune.com.conf
+sudo ln -s /etc/nginx/sites-available/dev.wishtune.com.conf /etc/nginx/sites-enabled/dev.wishtune.com.conf
+sudo nginx -t && sudo systemctl reload nginx
+curl -s https://devapi.wishtune.com/api/health      # {"ok":true,"sandbox":true}
+```
+
+### Testing in the sandbox
+- **Do not** add the devapi URL to the real Payhip or Netlify accounts.
+  Simulate them instead (signed with the sandbox's own test keys):
+  `npm run test:events -- --base https://devapi.wishtune.com --cleanup`
+- To test the bots: put your own number in the allowlist, give your test
+  contact that mobile on its page, use TeleAgent/Wylto test credentials,
+  set `BOTS_ENABLED=true`, `pm2 restart wishtune-dev-api`, switch the channel
+  on in *Settings → Bots* and press *Run now*.
+- Refresh the data any time with `npm run sandbox:copy-from-prod -- --yes`
+  (empties the sandbox first; sandbox admin logins are kept).
+
+---
+
+## 6. Bots (TeleAgent voice, Wylto WhatsApp) — ready, switched off
 
 - `jobs/botOutreachCron.js` runs every 5 min (`BOT_CRON_SCHEDULE`) and does
   **nothing** until `BOTS_ENABLED=true` in `.env`.
@@ -254,7 +320,7 @@ everything up to that moment. Any overlap is skipped by Order ID.
 
 ---
 
-## 6. Hand-over test (spec item 12)
+## 7. Hand-over test (spec item 12)
 
 **Automated** (signs requests with your keys, checks the database):
 
@@ -279,19 +345,20 @@ counted as paid, and team domains flagged as test. Test contacts use
 
 ---
 
-## 7. Scripts
+## 8. Scripts
 
 | Command | What it does |
 |---|---|
 | `npm run migrate` | apply new migrations (tracked, safe to re-run). `002` upgrades a server that ran the first version (empty CRM only — it refuses if there is data) |
 | `npm run import:payhip -- <file> [--commit]` | import past Payhip orders (section 4) |
+| `npm run sandbox:copy-from-prod -- --yes` | sandbox only: fill it with an anonymised copy of production (section 5) |
 | `npm run create-admin` | add an admin login (prompted, password hidden) |
 | `npm run reset-password` | set a new password + sign that user out everywhere |
 | `npm run secrets` | print fresh random secrets for `.env` |
 | `npm run test:events` | the hand-over checklist above |
 | `scripts/backup-db.sh` | gzip `mysqldump`, keep 14 days |
 
-## 8. API (admin, `Authorization: Bearer`)
+## 9. API (admin, `Authorization: Bearer`)
 
 `POST /api/v1/auth/login | refresh-token | logout | change-password` ·
 `GET /api/v1/dashboard/summary` ·

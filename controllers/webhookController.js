@@ -8,7 +8,7 @@
 const { processEvent, processRefund } = require("../services/contactEventService");
 const { insertEvent } = require("../services/eventLog");
 const { parsePayhip } = require("../services/payhipParser");
-const { parseNetlify } = require("../services/netlifyParser");
+const { parseNetlify, parseNetlifySignup } = require("../services/netlifyParser");
 
 exports.payhip = async (req, res) => {
   const p = parsePayhip(req.body);
@@ -106,6 +106,57 @@ exports.contact = async (req, res) => {
     return res.status(200).json(result);
   } catch (err) {
     console.error("[contact] processing failed:", err);
+    return res.status(500).json({ error: "Processing failed" });
+  }
+};
+
+/**
+ * POST /webhooks/signup — Netlify SIGN-UP forms (e.g. "offer-signup").
+ * Same JWS check as /webhooks/contact, but saved as a sign-up: stage
+ * Subscriber (never moves a buyer back), consent + page + UTM recorded.
+ * NETLIFY_SIGNUP_FORM_NAMES (comma-separated) limits which forms are taken.
+ */
+exports.netlifySignup = async (req, res) => {
+  const n = parseNetlifySignup(req.body);
+  const allowed = (process.env.NETLIFY_SIGNUP_FORM_NAMES || "")
+    .split(",")
+    .map((f) => f.trim())
+    .filter(Boolean);
+  try {
+    if (allowed.length && n.formName && !allowed.includes(n.formName)) {
+      const eventId = await insertEvent({
+        source: "signup",
+        type: "signup",
+        status: "ignored",
+        emailRaw: n.email,
+        summary: `Submission from form "${n.formName}" ignored`,
+        error: `Only ${allowed.join(", ")} accepted (NETLIFY_SIGNUP_FORM_NAMES)`,
+        payload: req.body,
+      });
+      return res.status(200).json({ status: "ignored", eventId });
+    }
+
+    const result = await processEvent({
+      source: "signup",
+      type: "signup",
+      emailRaw: n.email,
+      name: n.name,
+      mobile: n.mobile,
+      page: n.page,
+      utm: n.utm,
+      consent: n.consent,
+      extra: {
+        via: "netlify",
+        formName: n.formName,
+        formFields: Object.keys(n.otherFields).length ? n.otherFields : undefined,
+      },
+      dedupeKey: n.submissionId ? `netlify:${n.submissionId}` : null,
+      payload: req.body,
+      occurredAt: n.createdAt,
+    });
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[netlify-signup] processing failed:", err);
     return res.status(500).json({ error: "Processing failed" });
   }
 };

@@ -18,7 +18,7 @@ exports.getBots = async (_req, res) => {
          (SELECT COUNT(*) FROM bot_outreach WHERE status = 'sent' OR status = 'completed') AS reached,
          (SELECT COUNT(*) FROM bot_outreach WHERE status = 'failed') AS failed`,
     );
-    return res.json({ settings, providers: listProviders(), masterSwitch: botsMasterSwitch(), counts });
+    return res.json({ settings, providers: listProviders(), masterSwitch: botsMasterSwitch(), counts, sandbox: require("../config/sandbox").describe() });
   } catch (err) {
     console.error("[settings] bots get failed:", err);
     return res.status(500).json({ error: "Could not load bot settings" });
@@ -93,7 +93,8 @@ exports.runBotsNow = async (_req, res) => {
 
 /** What is wired up — shown on the Settings page so setup gaps are visible. */
 exports.integrations = async (_req, res) => {
-  const base = (process.env.APP_URL || "https://crm.wishtune.com").replace(/\/+$/, "");
+  // Webhooks live on the API host: same as APP_URL in production, devapi.wishtune.com in the sandbox.
+  const base = (process.env.API_PUBLIC_URL || process.env.APP_URL || "https://crm.wishtune.com").replace(/\/+$/, "");
   try {
     const [last] = await db.execute(
       `SELECT source, MAX(created_at) AS last_at FROM events
@@ -112,6 +113,11 @@ exports.integrations = async (_req, res) => {
         allowedOrigins: (process.env.SIGNUP_ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
         configured: true,
         lastEventAt: lastBySource.signup || null,
+      },
+      netlifySignup: {
+        url: `${base}/webhooks/signup`,
+        configured: Boolean(process.env.NETLIFY_JWS_SECRET),
+        formNames: (process.env.NETLIFY_SIGNUP_FORM_NAMES || "").split(",").map((s) => s.trim()).filter(Boolean),
       },
       contact: {
         url: `${base}/webhooks/contact`,

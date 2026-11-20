@@ -39,6 +39,7 @@ const order1 = `TEST-${run}-1`;
 const order2 = `TEST-${run}-2`;
 
 let failures = 0;
+let SANDBOX = false; // set from /api/health: sandbox anonymises non-test identities by design
 function check(label, cond, extra = "") {
   console.log(`${cond ? "  PASS" : "  FAIL"}  ${label}${!cond && extra ? `  (${extra})` : ""}`);
   if (!cond) failures += 1;
@@ -102,6 +103,12 @@ async function contact(email) {
 
 async function main() {
   console.log(`Wishtune CRM checklist → ${BASE}  (run ${run})\n`);
+  try {
+    SANDBOX = Boolean((await (await fetch(`${BASE}/api/health`)).json()).sandbox);
+  } catch {
+    SANDBOX = false;
+  }
+  if (SANDBOX) console.log("Sandbox detected: checks that need real (non-test) identities are skipped.\n");
   if (!process.env.PAYHIP_API_KEY || !process.env.NETLIFY_JWS_SECRET) {
     console.error("PAYHIP_API_KEY and NETLIFY_JWS_SECRET must be set in .env to sign test requests.");
     process.exit(1);
@@ -190,7 +197,7 @@ async function main() {
     "SELECT COUNT(*) n FROM events WHERE status = 'rejected' AND (email_raw = ? OR email_raw = ?)",
     [`not-an-email-${run}`, `broken@${run}`],
   );
-  check("both written to the error log", Number(rej[0].n) === 2, rej[0].n);
+  if (!SANDBOX) check("both written to the error log", Number(rej[0].n) === 2, rej[0].n);
 
   console.log("\n6. Duplicate Payhip order");
   r = await post("/webhooks/payhip", payhipSale(A, order1));
@@ -221,7 +228,7 @@ async function main() {
   const T = `crmtest-${run}-t@xlncacademy.com`;
   r = await post("/webhooks/payhip", payhipSale(T, `TEST-${run}-5`));
   const t = await contact(T);
-  check("team domain from the test list → flagged as test", Number(t?.is_internal) === 1, t?.is_internal);
+  if (!SANDBOX) check("team domain from the test list → flagged as test", Number(t?.is_internal) === 1, t?.is_internal);
 
   console.log(`\n${failures ? `${failures} check(s) FAILED` : "All checks passed"}`);
 

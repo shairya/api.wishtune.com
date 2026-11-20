@@ -31,6 +31,15 @@ function pageFromReferrer(referrer) {
   }
 }
 
+function utmFromReferrer(referrer, key) {
+  if (!referrer) return null;
+  try {
+    return new URL(referrer).searchParams.get(key) || null;
+  } catch {
+    return null;
+  }
+}
+
 function parseNetlify(body) {
   const b = body || {};
   const data = b.data && typeof b.data === "object" ? b.data : {};
@@ -53,14 +62,47 @@ function parseNetlify(body) {
     mobile: pick(data, ["mobile", "phone", "phone_number", "whatsapp"]),
     message: pick(data, ["message"]) || b.body || null,
     page: pick(data, ["page", "first_page_seen"]) || pageFromReferrer(data.referrer) || "contact",
+    // Hidden utm_* fields win; otherwise the tags on the page URL the form was sent from.
     utm: {
-      source: data.utm_source || null,
-      medium: data.utm_medium || null,
-      campaign: data.utm_campaign || null,
+      source: data.utm_source || utmFromReferrer(data.referrer, "utm_source"),
+      medium: data.utm_medium || utmFromReferrer(data.referrer, "utm_medium"),
+      campaign: data.utm_campaign || utmFromReferrer(data.referrer, "utm_campaign"),
     },
     createdAt: b.created_at ? new Date(b.created_at) : null,
     otherFields,
   };
 }
 
-module.exports = { parseNetlify };
+/**
+ * Netlify SIGN-UP forms (e.g. "offer-signup") — same payload, read as a
+ * sign-up: email, optional name/mobile, consent checkbox, page, UTM tags.
+ * Consent field names accepted: consent, marketing_consent, email_consent,
+ * opt_in / optin, subscribe, newsletter, agree. A ticked checkbox sends its
+ * value (Netlify default "on"); unticked sends nothing → no consent.
+ */
+const CONSENT_FIELDS = ["consent", "marketing_consent", "email_consent", "opt_in", "optin", "opt-in", "subscribe", "newsletter", "agree"];
+
+function consentValue(data) {
+  for (const k of CONSENT_FIELDS) {
+    if (data[k] === undefined || data[k] === null) continue;
+    const v = Array.isArray(data[k]) ? data[k].join(",") : String(data[k]).trim().toLowerCase();
+    if (!v || ["no", "false", "0", "off", "n"].includes(v)) return false;
+    return true;
+  }
+  return false;
+}
+
+function parseNetlifySignup(body) {
+  const base = parseNetlify(body);
+  const data = body && typeof body.data === "object" ? body.data : {};
+  const otherFields = { ...base.otherFields };
+  for (const k of CONSENT_FIELDS) delete otherFields[k];
+  return {
+    ...base,
+    page: pick(data, ["page", "first_page_seen"]) || pageFromReferrer(data.referrer) || base.formName || "signup",
+    consent: consentValue(data),
+    otherFields,
+  };
+}
+
+module.exports = { parseNetlify, parseNetlifySignup };

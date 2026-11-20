@@ -31,6 +31,7 @@ const { matchProduct, listPrice } = require("./productMatcher");
 const { getRules, matchRules } = require("./internalService");
 const { normalizeEmail, normalizeMobile, cleanText, cleanPage } = require("../lib/normalize");
 const { formatAmount, normCurrency } = require("../lib/money");
+const sandbox = require("../config/sandbox");
 
 const STAGE_RANK = { contact: 1, subscriber: 2, customer: 3, repeat_buyer: 4 };
 const INITIAL_STAGE = { sale: "customer", signup: "subscriber", contact_message: "contact" };
@@ -187,7 +188,9 @@ async function insertOrder(conn, contact, evt, now) {
  * @param {object} evt   see file header; sale fields are in currency units (₹1999 = 1999)
  * @param {{conn?: import('mysql2/promise').PoolConnection}} [opts]
  */
-async function processEvent(evt, opts = {}) {
+async function processEvent(rawEvt, opts = {}) {
+  // Sandbox: real customers' details are anonymised before anything is stored.
+  const evt = sandbox.sanitizeEvent(rawEvt);
   const external = opts.conn || null;
   const conn = external || (await db.getConnection());
 
@@ -423,7 +426,9 @@ async function processEvent(evt, opts = {}) {
  * Payhip "refunded" webhook: order marked (partially) refunded. Stage and
  * purchase count stay; a full refund removes the order from the paid count.
  */
-async function processRefund({ emailRaw, orderId, amountRefunded, refundedAt, payload, dedupeKey }) {
+async function processRefund({ emailRaw: rawEmail, orderId, amountRefunded, refundedAt, payload: rawPayload, dedupeKey }) {
+  const emailRaw = sandbox.sanitizeEmailRaw(rawEmail);
+  const payload = sandbox.isSandbox() && emailRaw !== rawEmail ? { sandboxSanitized: true } : rawPayload;
   const evt = { source: "payhip", type: "refund", emailRaw, payload, dedupeKey };
   const checked = normalizeEmail(emailRaw);
   const email = checked.ok ? checked.email : null;

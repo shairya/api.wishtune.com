@@ -16,6 +16,7 @@ const db = require("../../config/mysql");
 const { insertEvent } = require("../eventLog");
 const { getSetting } = require("../settingsService");
 const { getProvider, botsMasterSwitch } = require("./registry");
+const sandbox = require("../../config/sandbox");
 
 const STAGES = ["contact", "subscriber", "customer", "repeat_buyer"];
 
@@ -50,6 +51,15 @@ async function findEligible(channel, s) {
   const limit = Math.min(Math.max(parseInt(s.batchSize, 10) || 20, 1), 200);
   const delay = Math.max(parseInt(s.delayMinutes, 10) || 0, 0);
   const maxAttempts = Math.max(parseInt(s.maxAttempts, 10) || 1, 1);
+  // Sandbox: only allowlisted numbers can ever be picked (and the provider re-checks).
+  let sandboxClause = "";
+  let sandboxParams = [];
+  if (sandbox.isSandbox()) {
+    const mobiles = [...sandbox.getAllowlist().mobiles];
+    if (!mobiles.length) return [];
+    sandboxClause = `AND c.primary_mobile IN (${mobiles.map(() => "?").join(",")})`;
+    sandboxParams = mobiles;
+  }
   const [rows] = await db.execute(
     `SELECT c.id, c.primary_email AS email, CONCAT_WS(' ', c.first_name, c.last_name) AS name,
             c.first_name, c.primary_mobile AS mobile, c.stage
@@ -58,6 +68,7 @@ async function findEligible(channel, s) {
        AND c.unsubscribed = 0
        AND c.is_internal = 0
        AND c.merged_into_id IS NULL
+       ${sandboxClause}
        AND c.stage IN (${stages.map(() => "?").join(",")})
        AND c.mobile_added_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${delay} MINUTE)
        AND NOT EXISTS (
@@ -69,7 +80,7 @@ async function findEligible(channel, s) {
        )
      ORDER BY c.mobile_added_at ASC
      LIMIT ${limit}`,
-    [...stages, channel],
+    [...sandboxParams, ...stages, channel],
   );
   return rows;
 }
@@ -97,8 +108,9 @@ async function reachContact(contact, channel, provider) {
     });
     return true;
   } catch (err) {
+    const blocked = err instanceof sandbox.SandboxBlockedError;
     await db.execute(
-      "UPDATE bot_outreach SET status = 'failed', last_error = ? WHERE contact_id = ? AND channel = ?",
+      `UPDATE bot_outreach SET status = '${blocked ? "skipped" : "failed"}', last_error = ? WHERE contact_id = ? AND channel = ?`,
       [String(err.message).slice(0, 500), contact.id, channel],
     );
     await insertEvent({
@@ -116,7 +128,11 @@ async function reachContact(contact, channel, provider) {
 
 /** One pass. Returns a small report (also used by the "Run now" button). */
 async function runOutreachOnce({ force = false } = {}) {
-  const report = { ran: false, reason: null, channels: {} };
+  const report = { ran: false, reason: null, channels: {}, sandbox: sandbox.isSandbox() };
+  if (sandbox.isSandbox() && !sandbox.getAllowlist().mobiles.size) {
+    report.reason = `Sandbox: no valid mobile numbers in ${sandbox.getAllowlist().file} — nobody can be contacted`;
+    return report;
+  }
   if (!botsMasterSwitch()) {
     report.reason = "BOTS_ENABLED is not true in .env";
     return report;

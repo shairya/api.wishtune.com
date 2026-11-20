@@ -3,6 +3,7 @@
 // Public (no login):
 //   POST /webhooks/payhip        Payhip "paid"/"refunded"   (signature checked)
 //   POST /webhooks/contact       Netlify contact form       (JWS checked)
+//   POST /webhooks/signup        Netlify sign-up forms, e.g. offer-signup (JWS checked)
 //   POST /api/signup             website sign-up form       (wishtune.com origin only)
 //   POST /webhooks/teleagent     bot callbacks (dormant)    (shared token)
 //   POST /webhooks/wylto         bot callbacks (dormant)    (shared token)
@@ -47,11 +48,14 @@ const loginLimiter = rateLimit({
 const publicRouter = express.Router();
 publicRouter.post("/webhooks/payhip", webhookLimiter, verifyPayhipSignature, webhooks.payhip);
 publicRouter.post("/webhooks/contact", webhookLimiter, verifyNetlifySignature, webhooks.contact);
+publicRouter.post("/webhooks/signup", webhookLimiter, verifyNetlifySignature, webhooks.netlifySignup);
 publicRouter.post("/webhooks/teleagent", webhookLimiter, botWebhooks.teleagentAuth, botWebhooks.teleagent);
 publicRouter.post("/webhooks/wylto", webhookLimiter, botWebhooks.wyltoAuth, botWebhooks.wylto);
 publicRouter.options("/api/signup", cors(signup.corsOptions));
 publicRouter.post("/api/signup", cors(signup.corsOptions), signupLimiter, signup.requireAllowedOrigin, signup.signup);
-publicRouter.get("/api/health", (_req, res) => res.json({ ok: true }));
+publicRouter.get("/api/health", (_req, res) =>
+  res.json(require("../config/sandbox").isSandbox() ? { ok: true, sandbox: true } : { ok: true }),
+);
 
 // ---- admin ----------------------------------------------------------
 const api = express.Router();

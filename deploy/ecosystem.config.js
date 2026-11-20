@@ -6,7 +6,7 @@ module.exports = {
   apps: [
     {
       name: "wishtune-crm-api",
-      cwd: "/var/www/wishtune-crm-backend",
+      cwd: "/var/www/html/wishtune-crm-backend",
       script: "server.js",
       instances: 1, // keep 1: the bot cron must not run twice
       env: { NODE_ENV: "production" },
@@ -15,7 +15,7 @@ module.exports = {
     },
     {
       name: "wishtune-crm-web",
-      cwd: "/var/www/wishtune-crm-frontend",
+      cwd: "/var/www/html/wishtune-crm-frontend",
       script: "node_modules/next/dist/bin/next",
       args: "start -p 3100 -H 127.0.0.1",
       env: { NODE_ENV: "production" },
